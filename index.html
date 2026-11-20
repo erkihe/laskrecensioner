@@ -1,1 +1,629 @@
 
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Läskligan</title>
+<style>
+:root {
+  --bg:#10131b; --panel:#1b2030; --panel2:#242b3e;
+  --text:#f4f5fa; --muted:#aab1c4; --accent:#f2bd59;
+  --line:#343c50; --green:#83d6a2; --red:#ff8585;
+}
+* { box-sizing:border-box }
+body {
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:system-ui,-apple-system,Segoe UI,sans-serif;
+}
+header {
+  padding:24px max(18px,calc((100% - 1100px)/2));
+  background:#171c29; border-bottom:1px solid var(--line);
+}
+header h1 { margin:0; font-size:30px; letter-spacing:-1px }
+header p { margin:5px 0 0; color:var(--muted) }
+main { max-width:1100px; margin:auto; padding:22px 16px 60px }
+nav { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:22px }
+button, input, select, textarea {
+  font:inherit; border-radius:9px; border:1px solid var(--line);
+}
+button {
+  cursor:pointer; padding:10px 14px; background:var(--panel2);
+  color:var(--text);
+}
+button:hover { border-color:var(--accent) }
+button.primary { background:var(--accent); color:#241b0c; border-color:var(--accent); font-weight:700 }
+button.active { background:var(--accent); color:#241b0c; border-color:var(--accent) }
+button.danger { color:var(--red) }
+input, select, textarea {
+  width:100%; padding:11px 12px; background:#111622; color:var(--text);
+}
+textarea { min-height:75px; resize:vertical }
+label { display:block; color:var(--muted); font-size:13px; margin-bottom:6px }
+.field { margin-bottom:13px }
+.card {
+  background:var(--panel); border:1px solid var(--line);
+  border-radius:14px; padding:18px; margin-bottom:14px;
+}
+.card h2,.card h3 { margin:0 0 12px }
+.muted { color:var(--muted) }
+.small { font-size:13px }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px }
+.row { display:flex; gap:10px; align-items:center; flex-wrap:wrap }
+.row > * { flex:1 }
+.pill {
+  display:inline-block; padding:4px 9px; border-radius:20px;
+  background:var(--panel2); color:var(--muted); font-size:12px;
+}
+.stat { font-size:28px; font-weight:750; color:var(--accent) }
+.soda-row {
+  display:grid; grid-template-columns:1.2fr .7fr .7fr 1.2fr auto;
+  gap:9px; align-items:end; padding:12px 0; border-bottom:1px solid var(--line);
+}
+.tier {
+  display:inline-block; min-width:35px; text-align:center;
+  padding:5px 9px; border-radius:7px; background:var(--panel2); font-weight:800;
+}
+.tier-j { background:#f0c45d; color:#261b06 }
+.notice { padding:12px 14px; border-radius:9px; background:#252d40; color:var(--muted); margin-bottom:14px }
+.empty { color:var(--muted); padding:20px 0 }
+hr { border:0; border-top:1px solid var(--line); margin:18px 0 }
+#status { color:var(--muted); font-size:13px; margin-left:auto }
+#login {
+  max-width:420px; margin:12vh auto; padding:25px;
+  background:var(--panel); border:1px solid var(--line); border-radius:16px;
+}
+#login h1 { margin-top:0 }
+.hidden { display:none !important }
+@media(max-width:650px) {
+  header { padding:20px 16px }
+  header h1 { font-size:26px }
+  .soda-row { grid-template-columns:1fr 1fr; }
+  .soda-row .wide { grid-column:1/-1 }
+  nav button { flex:1 1 30%; padding:9px 7px; font-size:13px }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🥤 Läskligan</h1>
+  <p>Våra provningar, betyg och favoriter</p>
+</header>
+
+<section id="login">
+  <h1>Välkommen till Läskligan</h1>
+  <p class="muted">Ange gruppens gemensamma åtkomstkod.</p>
+  <form id="loginForm">
+    <div class="field">
+      <label>Åtkomstkod</label>
+      <input id="accessCode" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="primary" type="submit">Öppna Läskligan</button>
+    <p id="loginError" class="small" style="color:var(--red)"></p>
+  </form>
+</section>
+
+<main id="app" class="hidden">
+  <div class="row" style="margin-bottom:15px">
+    <div>
+      <span class="pill">Gemensam yta</span>
+      <span id="who" class="muted small"></span>
+    </div>
+    <span id="status">Ansluter...</span>
+  </div>
+
+  <nav id="nav">
+    <button data-tab="home" class="active">Översikt</button>
+    <button data-tab="tastings">Provningar</button>
+    <button data-tab="current">Betygsätt</button>
+    <button data-tab="tiers">Tier lists</button>
+    <button data-tab="favorites">Favoriter</button>
+    <button data-tab="history">Historik</button>
+    <button data-tab="people">Deltagare</button>
+  </nav>
+
+  <section id="content"></section>
+</main>
+
+<script>
+// =====================================================
+// 1. FYLL I DINA SUPABASE-UPPGIFTER HÄR
+// =====================================================
+const SUPABASE_URL = "https://ernmvkfuixcltqqupndg.supabase.co  ";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_oVRZ0oX-BtGhKxjE7gDwow_czziu5JJ";
+
+// =====================================================
+// 2. APPENS GRUNDINSTÄLLNINGAR
+// =====================================================
+const FUNCTION_URL = SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/laskligan-api";
+const TIERS = ["Jättipommi", "A", "B", "C", "D", "F"];
+
+const state = {
+  code: localStorage.getItem("laskligan_code") || "",
+  memberId: localStorage.getItem("laskligan_member") || "",
+  tab: "home",
+  members: [],
+  tastings: [],
+  sodas: [],
+  tastingSodas: [],
+  ratings: [],
+  selectedTasting: ""
+};
+
+const content = document.getElementById("content");
+const statusEl = document.getElementById("status");
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+  })[c]);
+}
+function say(message) { statusEl.textContent = message; }
+function memberName(id) {
+  return state.members.find(m => m.id === id)?.name || "Okänd deltagare";
+}
+function sodaName(id) {
+  return state.sodas.find(s => s.id === id)?.name || "Okänd läsk";
+}
+function currentTasting() {
+  return state.tastings.find(t => t.id === state.selectedTasting);
+}
+function ratingsFor(tastingId, sodaId) {
+  return state.ratings.filter(r => r.tasting_id === tastingId && r.soda_id === sodaId);
+}
+function tierClass(tier) { return tier === "Jättipommi" ? "tier tier-j" : "tier"; }
+
+async function api(action, table, data, filters) {
+  const response = await fetch(FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_PUBLISHABLE_KEY
+    },
+    body: JSON.stringify({
+      accessCode: state.code,
+      action, table, data, filters
+    })
+  });
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error("Servern gav inget läsbart svar."); }
+  if (!response.ok) throw new Error(result.error || "Något gick fel.");
+  return result.data;
+}
+
+async function loadData() {
+  say("Hämtar data...");
+  const [members, tastings, sodas, tastingSodas, ratings] = await Promise.all([
+    api("list", "members"),
+    api("list", "tastings"),
+    api("list", "sodas"),
+    api("list", "tasting_sodas"),
+    api("list", "ratings")
+  ]);
+  state.members = members || [];
+  state.tastings = tastings || [];
+  state.sodas = sodas || [];
+  state.tastingSodas = tastingSodas || [];
+  state.ratings = ratings || [];
+
+  state.tastings.sort((a,b) =>
+    String(b.tasting_date || "").localeCompare(String(a.tasting_date || ""))
+  );
+
+  if (!state.tastings.some(t => t.id === state.selectedTasting)) {
+    state.selectedTasting = state.tastings[0]?.id || "";
+  }
+  if (!state.members.some(m => m.id === state.memberId)) {
+    state.memberId = "";
+    localStorage.removeItem("laskligan_member");
+  }
+  say("Ansluten");
+  render();
+}
+
+function showApp() {
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("who").textContent =
+    state.memberId ? " • " + memberName(state.memberId) : "";
+}
+
+function tierOptions(selected) {
+  return TIERS.map(t => `<option ${t === selected ? "selected" : ""} value="${esc(t)}">${esc(t)}</option>`).join("");
+}
+
+function tastingOptions() {
+  return state.tastings.map(t =>
+    `<option value="${t.id}" ${t.id === state.selectedTasting ? "selected" : ""}>${esc(t.title)}</option>`
+  ).join("");
+}
+
+function memberOptions() {
+  return `<option value="">Välj deltagare</option>` + state.members.map(m =>
+    `<option value="${m.id}" ${m.id === state.memberId ? "selected" : ""}>${esc(m.name)}</option>`
+  ).join("");
+}
+
+function render() {
+  document.querySelectorAll("#nav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.tab === state.tab)
+  );
+  document.getElementById("who").textContent =
+    state.memberId ? " • " + memberName(state.memberId) : "";
+
+  const pages = {
+    home: renderHome,
+    tastings: renderTastings,
+    current: renderCurrent,
+    tiers: renderTiers,
+    favorites: renderFavorites,
+    history: renderHistory,
+    people: renderPeople
+  };
+  content.innerHTML = pages[state.tab]();
+}
+
+function renderHome() {
+  const tasting = currentTasting();
+  const sodaCount = tasting
+    ? state.tastingSodas.filter(x => x.tasting_id === tasting.id).length : 0;
+  return `
+    <div class="grid">
+      <div class="card"><div class="muted small">Antal provningar</div><div class="stat">${state.tastings.length}</div></div>
+      <div class="card"><div class="muted small">Deltagare</div><div class="stat">${state.members.length}</div></div>
+      <div class="card"><div class="muted small">Läsk i biblioteket</div><div class="stat">${state.sodas.length}</div></div>
+    </div>
+    <div class="card">
+      <h2>Pågående provning</h2>
+      ${tasting ? `
+        <h3>${esc(tasting.title)}</h3>
+        <p class="muted">${esc(tasting.tasting_date || "")} · ${sodaCount} läsk</p>
+        <button class="primary" data-action="goto" data-tab="current">Betygsätt provningen</button>
+      ` : `<p class="empty">Det finns inga provningar ännu.</p>
+        <button class="primary" data-action="goto" data-tab="tastings">Skapa första provningen</button>`}
+    </div>
+    <div class="card">
+      <h2>Gruppens favoriter</h2>
+      ${favoriteRows(tasting?.id, 3)}
+      <button data-action="goto" data-tab="favorites">Visa alla favoriter</button>
+    </div>`;
+}
+
+function renderTastings() {
+  return `
+    <div class="card">
+      <h2>Skapa en provning</h2>
+      <form data-form="createTasting">
+        <div class="field"><label>Namn på provningen</label><input name="title" placeholder="Exempel: Julmust 2026" required></div>
+        <div class="field"><label>Datum</label><input name="tasting_date" type="date" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="field"><label>Anteckningar</label><textarea name="notes" placeholder="Valfria anteckningar"></textarea></div>
+        <button class="primary">Skapa provning</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Tidigare och kommande provningar</h2>
+      ${state.tastings.length ? state.tastings.map(t => `
+        <div class="row" style="padding:10px 0;border-bottom:1px solid var(--line)">
+          <div><strong>${esc(t.title)}</strong><div class="muted small">${esc(t.tasting_date || "")}</div></div>
+          <button data-action="selectTasting" data-id="${t.id}">Öppna</button>
+          <button data-action="editTasting" data-id="${t.id}">Redigera</button>
+        </div>`).join("") : `<p class="empty">Inga provningar ännu.</p>`}
+    </div>`;
+}
+
+function renderCurrent() {
+  const t = currentTasting();
+  if (!t) return `<div class="card"><h2>Ingen provning vald</h2><p class="empty">Skapa en provning först.</p><button data-action="goto" data-tab="tastings">Gå till provningar</button></div>`;
+
+  const links = state.tastingSodas.filter(x => x.tasting_id === t.id);
+  const selectedMember = state.members.find(m => m.id === state.memberId);
+  return `
+    <div class="card">
+      <h2>Välj provning</h2>
+      <select id="tastingPicker">${tastingOptions()}</select>
+      <h2 style="margin-top:18px">${esc(t.title)}</h2>
+      <p class="muted">${esc(t.tasting_date || "")} ${esc(t.notes || "")}</p>
+    </div>
+    <div class="card">
+      <h2>Vem betygsätter?</h2>
+      <select id="memberPicker">${memberOptions()}</select>
+      ${!selectedMember ? `<p class="muted small">Välj ditt namn för att kunna registrera betyg.</p>` : ""}
+    </div>
+    <div class="card">
+      <h2>Lägg till läsk i provningen</h2>
+      <form data-form="addExistingSoda" class="row">
+        <select name="soda_id" required>
+          <option value="">Välj läsk</option>
+          ${state.sodas.map(s => `<option value="${s.id}">${esc(s.name)}${s.brand ? " – "+esc(s.brand) : ""}</option>`).join("")}
+        </select>
+        <button class="primary">Lägg till</button>
+      </form>
+      <hr>
+      <details>
+        <summary>Skapa en ny läsk</summary>
+        <form data-form="createSoda" style="margin-top:14px">
+          <div class="field"><label>Namn</label><input name="name" required></div>
+          <div class="field"><label>Märke</label><input name="brand"></div>
+          <div class="field"><label>Smak / variant</label><input name="flavor"></div>
+          <button class="primary">Skapa läsk och lägg till</button>
+        </form>
+      </details>
+    </div>
+    <div class="card">
+      <h2>Läsk i provningen (${links.length})</h2>
+      ${links.length ? links.map(link => {
+        const soda = state.sodas.find(s => s.id === link.soda_id);
+        const rating = state.ratings.find(r =>
+          r.tasting_id === t.id && r.soda_id === link.soda_id && r.member_id === state.memberId
+        );
+        return `
+          <div style="padding:15px 0;border-bottom:1px solid var(--line)">
+            <h3>${esc(soda?.name || "Okänd läsk")}</h3>
+            <p class="muted small">${esc(soda?.brand || "")} ${esc(soda?.flavor || "")}</p>
+            ${selectedMember ? `
+              <form data-form="saveRating" data-soda="${link.soda_id}">
+                <div class="grid">
+                  <div class="field"><label>Betyg (1–10)</label>
+                    <input name="score" type="number" min="1" max="10" step="1" value="${rating?.score ?? ""}" required>
+                  </div>
+                  <div class="field"><label>Tier</label>
+                    <select name="tier">${tierOptions(rating?.tier || "B")}</select>
+                  </div>
+                </div>
+                <div class="field"><label>Kommentar</label>
+                  <textarea name="comment" placeholder="Vad tyckte du?">${esc(rating?.comment || "")}</textarea>
+                </div>
+                <button class="primary">Spara mitt betyg</button>
+                ${rating ? `<span class="muted small">Ditt betyg är sparat.</span>` : ""}
+              </form>` : `<p class="muted small">Välj deltagare ovan för att betygsätta.</p>`}
+          </div>`;
+      }).join("") : `<p class="empty">Lägg till läsk i provningen för att börja.</p>`}
+    </div>`;
+}
+
+function renderTiers() {
+  const t = currentTasting();
+  if (!t) return `<div class="card"><p class="empty">Välj eller skapa en provning först.</p></div>`;
+  if (!state.memberId) return `<div class="card"><p class="empty">Välj ditt namn under Betygsätt först.</p><button data-action="goto" data-tab="current">Välj deltagare</button></div>`;
+  const links = state.tastingSodas.filter(x => x.tasting_id === t.id);
+  return `
+    <div class="card">
+      <h2>Min tier list</h2>
+      <p class="muted">${esc(t.title)} · ${esc(memberName(state.memberId))}</p>
+      <p class="small muted">Din tier och ditt sifferbetyg är två separata omdömen.</p>
+      ${TIERS.map(tier => {
+        const rows = links.map(link => {
+          const r = state.ratings.find(x => x.tasting_id === t.id && x.soda_id === link.soda_id && x.member_id === state.memberId);
+          return r?.tier === tier ? `<div style="padding:8px 0;border-bottom:1px solid var(--line)">${esc(sodaName(link.soda_id))} <span class="muted small">· ${r.score}/10</span></div>` : "";
+        }).filter(Boolean).join("");
+        return `<div style="margin:15px 0"><span class="${tierClass(tier)}">${esc(tier)}</span>${rows || `<span class="muted small"> Inga läsker placerade här ännu.</span>`}</div>`;
+      }).join("")}
+      <button data-action="goto" data-tab="current">Ändra mina betyg och placeringar</button>
+    </div>`;
+}
+
+function favoriteRows(tastingId, limit = 999) {
+  if (!tastingId) return `<p class="empty">Välj en provning för att se favoriter.</p>`;
+  const links = state.tastingSodas.filter(x => x.tasting_id === tastingId);
+  const rows = links.map(link => {
+    const rs = ratingsFor(tastingId, link.soda_id);
+    const total = rs.reduce((sum,r) => sum + Number(r.score || 0), 0);
+    const average = rs.length ? (total / rs.length).toFixed(1) : "–";
+    return { name:sodaName(link.soda_id), total, average, count:rs.length };
+  }).sort((a,b) => b.total-a.total);
+  if (!rows.length) return `<p class="empty">Inga läsker i provningen ännu.</p>`;
+  return rows.slice(0,limit).map((r,i) => `
+    <div class="row" style="padding:10px 0;border-bottom:1px solid var(--line)">
+      <div><strong>${i+1}. ${esc(r.name)}</strong><div class="muted small">${r.count} betyg · snitt ${r.average}/10</div></div>
+      <div style="text-align:right"><span class="stat">${r.total}</span><div class="muted small">poäng totalt</div></div>
+    </div>`).join("");
+}
+
+function renderFavorites() {
+  const t = currentTasting();
+  return `<div class="card">
+    <h2>Gruppens favoriter</h2>
+    <p class="muted">Summan av deltagarnas sifferbetyg i den valda provningen.</p>
+    ${t ? `<p><strong>${esc(t.title)}</strong></p>${favoriteRows(t.id)}` : `<p class="empty">Skapa en provning först.</p>`}
+    ${t ? `<p class="muted small">Läsker utan betyg visas med noll poäng. Alla betyg räknas lika.</p>` : ""}
+  </div>`;
+}
+
+function renderHistory() {
+  return `<div class="card">
+    <h2>Provningshistorik</h2>
+    ${state.tastings.length ? state.tastings.map(t => {
+      const links = state.tastingSodas.filter(x => x.tasting_id === t.id);
+      const rs = state.ratings.filter(r => r.tasting_id === t.id);
+      return `<div style="padding:14px 0;border-bottom:1px solid var(--line)">
+        <h3>${esc(t.title)}</h3>
+        <p class="muted small">${esc(t.tasting_date || "")} · ${links.length} läsker · ${rs.length} registrerade betyg</p>
+        <button data-action="selectTasting" data-id="${t.id}">Visa provningen</button>
+      </div>`;
+    }).join("") : `<p class="empty">Historiken är tom.</p>`}
+  </div>`;
+}
+
+function renderPeople() {
+  return `
+    <div class="card">
+      <h2>Lägg till deltagare</h2>
+      <form data-form="addMember" class="row">
+        <input name="name" placeholder="Deltagarens namn" required>
+        <button class="primary">Lägg till</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Deltagare (${state.members.length})</h2>
+      ${state.members.length ? state.members.map(m => `
+        <div class="row" style="padding:10px 0;border-bottom:1px solid var(--line)">
+          <strong>${esc(m.name)}</strong>
+          ${m.id === state.memberId ? `<span class="pill">Du på denna enhet</span>` : ""}
+          <button data-action="chooseMember" data-id="${m.id}">Välj namn</button>
+        </div>`).join("") : `<p class="empty">Lägg till den första deltagaren.</p>`}
+    </div>`;
+}
+
+async function refresh() {
+  try { await loadData(); }
+  catch (error) {
+    say("Fel vid hämtning");
+    alert("Kunde inte hämta data: " + error.message);
+  }
+}
+
+document.getElementById("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (SUPABASE_URL.startsWith("KLIS") || SUPABASE_PUBLISHABLE_KEY.startsWith("KL")) {
+    document.getElementById("loginError").textContent = "Fyll först i Project URL och Publishable key i koden.";
+    return;
+  }
+  state.code = document.getElementById("accessCode").value.trim();
+  try {
+    await api("list", "members");
+    localStorage.setItem("laskligan_code", state.code);
+    showApp();
+    await loadData();
+  } catch (error) {
+    document.getElementById("loginError").textContent = error.message;
+  }
+});
+
+document.getElementById("nav").addEventListener("click", e => {
+  const button = e.target.closest("[data-tab]");
+  if (!button) return;
+  state.tab = button.dataset.tab;
+  render();
+});
+
+content.addEventListener("click", async e => {
+  const button = e.target.closest("[data-action]");
+  if (!button) return;
+  const action = button.dataset.action;
+  try {
+    if (action === "goto") {
+      state.tab = button.dataset.tab;
+      render();
+    }
+    if (action === "selectTasting") {
+      state.selectedTasting = button.dataset.id;
+      state.tab = "current";
+      render();
+    }
+    if (action === "chooseMember") {
+      state.memberId = button.dataset.id;
+      localStorage.setItem("laskligan_member", state.memberId);
+      render();
+    }
+    if (action === "editTasting") {
+      const t = state.tastings.find(x => x.id === button.dataset.id);
+      const title = prompt("Namn på provningen:", t.title);
+      if (title === null || !title.trim()) return;
+      const date = prompt("Datum (ÅÅÅÅ-MM-DD):", t.tasting_date || "");
+      const notes = prompt("Anteckningar:", t.notes || "");
+      await api("update", "tastings",
+        { title:title.trim(), tasting_date:date || null, notes:notes || "" },
+        { id:t.id });
+      await refresh();
+    }
+  } catch (error) { alert(error.message); }
+});
+
+content.addEventListener("change", e => {
+  if (e.target.id === "tastingPicker") {
+    state.selectedTasting = e.target.value;
+    render();
+  }
+  if (e.target.id === "memberPicker") {
+    state.memberId = e.target.value;
+    if (state.memberId) localStorage.setItem("laskligan_member", state.memberId);
+    else localStorage.removeItem("laskligan_member");
+    render();
+  }
+});
+
+content.addEventListener("submit", async e => {
+  const form = e.target.closest("form[data-form]");
+  if (!form) return;
+  e.preventDefault();
+  const formData = new FormData(form);
+  const values = Object.fromEntries(formData.entries());
+  const type = form.dataset.form;
+
+  try {
+    if (type === "createTasting") {
+      const result = await api("insert", "tastings", {
+        title: values.title.trim(),
+        tasting_date: values.tasting_date || null,
+        notes: values.notes || ""
+      });
+      state.selectedTasting = result?.[0]?.id || "";
+      state.tab = "current";
+    }
+
+    if (type === "addMember") {
+      const name = values.name.trim();
+      if (!name) return;
+      await api("insert", "members", { name });
+    }
+
+    if (type === "createSoda") {
+      const result = await api("insert", "sodas", {
+        name: values.name.trim(),
+        brand: values.brand || "",
+        flavor: values.flavor || ""
+      });
+      const soda = result?.[0];
+      if (soda && state.selectedTasting) {
+        await api("upsert", "tasting_sodas", {
+          tasting_id:state.selectedTasting, soda_id:soda.id
+        });
+      }
+    }
+
+    if (type === "addExistingSoda") {
+      if (!state.selectedTasting || !values.soda_id) return;
+      await api("upsert", "tasting_sodas", {
+        tasting_id:state.selectedTasting, soda_id:values.soda_id
+      });
+    }
+
+    if (type === "saveRating") {
+      if (!state.memberId) throw new Error("Välj ditt namn först.");
+      const score = Number(values.score);
+      if (!Number.isInteger(score) || score < 1 || score > 10) {
+        throw new Error("Betyget måste vara ett heltal mellan 1 och 10.");
+      }
+      await api("upsert", "ratings", {
+        tasting_id:state.selectedTasting,
+        soda_id:form.dataset.soda,
+        member_id:state.memberId,
+        score,
+        tier:values.tier,
+        comment:values.comment || ""
+      });
+    }
+
+    await refresh();
+  } catch (error) {
+    alert("Kunde inte spara: " + error.message);
+  }
+});
+
+// Om koden redan finns sparad på enheten, försök ansluta direkt.
+(async function start() {
+  if (!state.code) return;
+  try {
+    await api("list", "members");
+    showApp();
+    await loadData();
+  } catch {
+    localStorage.removeItem("laskligan_code");
+    state.code = "";
+  }
+})();
+</script>
+</body>
+</html>
